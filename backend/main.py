@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from backend.luma_client import luma_client
 import openai
 from openai.types.chat import ChatCompletion
+from fastapi.middleware.cors import CORSMiddleware
 import os
 import asyncio
 from dotenv import load_dotenv
@@ -10,6 +11,14 @@ from pydantic import BaseModel
 load_dotenv()
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Allow requests from your Next.js frontend
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
+)
 
 # Placeholder constant for chord-to-image map
 CHORD_IMAGE_MAP = {
@@ -113,7 +122,8 @@ async def generate_video(chord_input: ChordInput):
 
         if not video_url:
             raise HTTPException(status_code=500, detail="Video generation failed")
-
+        print(video_url)
         return {"video_url": video_url}
     except Exception as e:
+        print(e)
         raise HTTPException(status_code=500, detail=str(e))
