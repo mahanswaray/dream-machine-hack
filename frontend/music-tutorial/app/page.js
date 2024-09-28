@@ -116,10 +116,10 @@ export default function Home() {
             <h2 className="text-3xl font-bold text-blue-800 mb-6">Guitar Tab Video Generator</h2>
 
             <div className="space-y-4">
-              <h3 className="text-2xl font-semibold text-purple-600">Extract Chords and Generate Videos</h3>
+              <h3 className="text-2xl font-semibold text-blue-600">Extract Chords and Generate Videos</h3>
               <div className="relative">
                 <textarea
-                  className="w-full p-3 border-2 border-purple-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full p-3 border-2 border-blue-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
                   value={tab}
                   onChange={(e) => setTab(e.target.value)}
                   placeholder="Enter guitar tablature here"
@@ -127,7 +127,7 @@ export default function Home() {
                 />
               </div>
               <button
-                className="w-full px-6 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition duration-300"
+                className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-300"
                 onClick={extractChordsAndGenerateVideos}
                 disabled={isLoading}
               >
