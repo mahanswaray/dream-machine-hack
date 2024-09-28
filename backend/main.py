@@ -63,6 +63,9 @@ class TabInput(BaseModel):
 class ChordInput(BaseModel):
     chord_name: str
 
+# In-memory KV store
+video_cache = {}
+
 def extract_chords(tablature):
     prompt = f"""
     Extract only the chord names from the following guitar tablature:
@@ -88,6 +91,7 @@ def extract_chords(tablature):
 
     chords = response.choices[0].message.content.strip() # type: ignore[union-attr]
     return [chord.strip() for chord in chords.split(',')]
+
 async def loop_and_wait_for_generation(gen_id):
     generation = await luma_client.generations.get(id=gen_id)
     while generation.assets is None:
@@ -120,8 +124,39 @@ async def extract_chords_api(tab_input: TabInput):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+async def generate_video(chord_name: str):
+    if chord_name not in CHORD_IMAGE_MAP:
+        raise HTTPException(status_code=400, detail="Chord not found in image map")
+
+    chord_image_urls = CHORD_IMAGE_MAP[chord_name]
+    prompt = VIDEO_GENERATION_PROMPT.format(chord_name=chord_name)
+    print("Running generation with prompt: ", prompt)
+    generation = await luma_client.generations.create(
+        prompt=VIDEO_GENERATION_PROMPT.format(chord_name=chord_name),
+        keyframes={
+            "frame0": {
+                "type": "image",
+                "url": chord_image_urls["empty"]
+            },
+            "frame1": {
+                "type": "image",
+                "url": chord_image_urls["fingered"]
+            }
+        }
+    )
+    
+    print(generation.id)
+
+    final_generation = await loop_and_wait_for_generation(generation.id)
+    video_url = final_generation.assets.video if final_generation.assets else None
+
+    if not video_url:
+        raise HTTPException(status_code=500, detail="Video generation failed")
+    print(video_url)
+    return video_url
+
 @app.post("/api/generate-video")
-async def generate_video(chord_input: ChordInput):
+async def generate_video_api(chord_input: ChordInput):
     """
     Generate a video showing how to play a specific guitar chord.
 
@@ -131,34 +166,12 @@ async def generate_video(chord_input: ChordInput):
          -d '{"chord_name": "Em7"}'
     """
     try:
-        if chord_input.chord_name not in CHORD_IMAGE_MAP:
-            raise HTTPException(status_code=400, detail="Chord not found in image map")
-
-        chord_image_urls = CHORD_IMAGE_MAP[chord_input.chord_name]
-        prompt = VIDEO_GENERATION_PROMPT.format(chord_name=chord_input.chord_name)
-        print("Running generation with prompt: ", prompt)
-        generation = await luma_client.generations.create(
-            prompt=VIDEO_GENERATION_PROMPT.format(chord_name=chord_input.chord_name),
-            keyframes={
-                "frame0": {
-                    "type": "image",
-                    "url": chord_image_urls["empty"]
-                },
-                "frame1": {
-                    "type": "image",
-                    "url": chord_image_urls["fingered"]
-                }
-            }
-        )
+        chord_name = chord_input.chord_name
+        if chord_name in video_cache:
+            return {"video_url": video_cache[chord_name]}
         
-        print(generation.id)
-
-        final_generation = await loop_and_wait_for_generation(generation.id)
-        video_url = final_generation.assets.video if final_generation.assets else None
-
-        if not video_url:
-            raise HTTPException(status_code=500, detail="Video generation failed")
-        print(video_url)
+        video_url = await generate_video(chord_name)
+        video_cache[chord_name] = video_url
         return {"video_url": video_url}
     except Exception as e:
         print(e)
