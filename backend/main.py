@@ -4,6 +4,10 @@ import openai
 from openai.types.chat import ChatCompletion
 import os
 import asyncio
+from dotenv import load_dotenv
+from pydantic import BaseModel
+
+load_dotenv()
 
 app = FastAPI()
 
@@ -19,6 +23,11 @@ CHORD_IMAGE_MAP = {
 # Set your OpenAI API key
 openai.api_key = os.environ.get("OPENAI_API_KEY")
 
+class TabInput(BaseModel):
+    tab: str
+
+class ChordInput(BaseModel):
+    chord_name: str
 
 def extract_chords(tablature):
     prompt = f"""
@@ -58,23 +67,39 @@ async def root():
     return {"message": "Welcome to Guitar Tab Video Generator API"}
 
 @app.post("/api/extract-chords")
-async def extract_chords_api(tab: str):
+async def extract_chords_api(tab_input: TabInput):
+    """
+    Extract chords from a given guitar tablature.
+
+    Example curl call:
+    curl -X POST "http://localhost:8000/api/extract-chords" \
+         -H "Content-Type: application/json" \
+         -d '{"tab": "Em7   G    Dsus4\\ne|---0---3----2----\\nB|---3---0----3----\\nG|---0---0----2----\\nD|---2---0----0----\\nA|---2---2----x----\\nE|---0---3----x----"}'
+    """
     try:
-        chords = extract_chords(tab)
+        chords = extract_chords(tab_input.tab)
         return {"chords": chords}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/generate-video")
-async def generate_video(chord_name: str):
+async def generate_video(chord_input: ChordInput):
+    """
+    Generate a video showing how to play a specific guitar chord.
+
+    Example curl call:
+    curl -X POST "http://localhost:8000/api/generate-video" \
+         -H "Content-Type: application/json" \
+         -d '{"chord_name": "Em7"}'
+    """
     try:
-        if chord_name not in CHORD_IMAGE_MAP:
+        if chord_input.chord_name not in CHORD_IMAGE_MAP:
             raise HTTPException(status_code=400, detail="Chord not found in image map")
 
-        chord_image_url = CHORD_IMAGE_MAP[chord_name]
+        chord_image_url = CHORD_IMAGE_MAP[chord_input.chord_name]
         
         generation = await luma_client.generations.create(
-            prompt=f"Generate a video showing how to play the {chord_name} chord on a guitar",
+            prompt=f"Generate a video showing how to play the {chord_input.chord_name} chord on a guitar",
             keyframes={
                 "frame0": {
                     "type": "image",

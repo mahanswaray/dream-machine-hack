@@ -31,6 +31,10 @@ The backend processes the user input, extracts chord information, fetches releva
 - **Input:** Raw guitar tablature text
 - **Output:** JSON array of identified chords
 
+```
+curl -X POST http://localhost:8000/api/extract-chords -H "Content-Type: application/json" -d '{"tab": "Em7   G    Dsus4\ne|---0---3----2----\nB|---3---0----3----\nG|---0---0----2----\nD|---2---0----0----\nA|---2---2----x----\nE|---0---3----x----"}'
+```
+
 ### 2. Video Generation API
 - **Endpoint:** `/api/generate-video`
 - **Method:** POST
