@@ -208,7 +208,15 @@ def merge_videos(video_paths: List[str], output_path: str):
 def upload_to_s3(local_file: str, s3_file: str) -> str:
     try:
         s3_client.upload_file(local_file, os.environ.get('AWS_S3_BUCKET_NAME'), s3_file)
-        return f"https://{os.environ.get('AWS_S3_BUCKET_NAME')}.s3.amazonaws.com/{s3_file}"
+        s3_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': os.environ.get('AWS_S3_BUCKET_NAME'),
+                'Key': s3_file
+            },
+            ExpiresIn=3600  # URL expires in 1 hour
+        )
+        return s3_url
     except NoCredentialsError:
         print("Credentials not available")
         return ""
