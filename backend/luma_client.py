@@ -1,4 +1,6 @@
 import os
-from lumaai import LumaAI
+from lumaai import AsyncLumaAI
 
-luma_client = LumaAI(auth_token=os.environ.get("LUMAAI_API_KEY"))
+luma_client = AsyncLumaAI(
+    auth_token=os.environ.get("LUMAAI_API_KEY"),
+)
