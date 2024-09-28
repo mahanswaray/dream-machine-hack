@@ -1,3 +1,4 @@
+import traceback
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -9,8 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 import asyncio
 from pydantic import BaseModel
-
-
+from typing import List
+import ffmpeg
+import boto3
+import tempfile
+import requests
+from botocore.exceptions import NoCredentialsError
 
 app = FastAPI()
 
@@ -57,11 +62,20 @@ VIDEO_GENERATION_PROMPT = """This is a video of a person placing their fingers o
 # Set your OpenAI API key
 openai.api_key = os.environ.get("OPENAI_API_KEY")
 
+# Initialize S3 client
+s3_client = boto3.client('s3',
+    aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY')
+)
+
 class TabInput(BaseModel):
     tab: str
 
 class ChordInput(BaseModel):
     chord_name: str
+
+class ChordProgressionInput(BaseModel):
+    chords: List[str]
 
 # In-memory KV store
 video_cache = {}
@@ -175,4 +189,106 @@ async def generate_video_api(chord_input: ChordInput):
         return {"video_url": video_url}
     except Exception as e:
         print(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def download_video(url: str, output_path: str):
+    response = requests.get(url)
+    with open(output_path, 'wb') as f:
+        f.write(response.content)
+
+def merge_videos(video_paths: List[str], output_path: str):
+    inputs = [ffmpeg.input(video) for video in video_paths]
+    (
+        ffmpeg
+        .concat(*inputs)
+        .output(output_path)
+        .run(overwrite_output=True)
+    )
+
+def upload_to_s3(local_file: str, s3_file: str) -> str:
+    try:
+        s3_client.upload_file(local_file, os.environ.get('AWS_S3_BUCKET_NAME'), s3_file)
+        return f"https://{os.environ.get('AWS_S3_BUCKET_NAME')}.s3.amazonaws.com/{s3_file}"
+    except NoCredentialsError:
+        print("Credentials not available")
+        return ""
+
+@app.post("/api/create_chord_progression_video")
+async def create_chord_progression_video(chord_progression_input: ChordProgressionInput):
+    """
+    Generate a single video showing transitions between chords in a progression.
+
+    Example curl call:
+    curl -X POST "http://localhost:8000/api/create_chord_progression_video" \
+         -H "Content-Type: application/json" \
+         -d '{"chords": ["C", "D", "Em", "G"]}'
+    """
+    chords = chord_progression_input.chords
+    
+    if len(chords) < 1:
+        raise HTTPException(status_code=400, detail="At least one chord is required for a progression")
+
+    async def generate_transition_video(chord1: str, chord2: str, is_first: bool = False):
+        if chord1 not in CHORD_IMAGE_MAP or chord2 not in CHORD_IMAGE_MAP:
+            raise HTTPException(status_code=400, detail=f"Chord not found in image map: {chord1} or {chord2}")
+
+        if is_first:
+            prompt = f"This video shows how to form the {chord1} chord on a guitar. The video starts with an empty guitar neck, then the hand moves in and positions the fingers to form the {chord1} chord."
+            start_image = CHORD_IMAGE_MAP[chord1]["empty"]
+            end_image = CHORD_IMAGE_MAP[chord1]["fingered"]
+        else:
+            prompt = f"This video shows a transition from {chord1} chord to {chord2} chord on a guitar. The video starts with fingers positioned for {chord1}, then the hand lifts slightly, moves, and repositions to form the {chord2} chord."
+            start_image = CHORD_IMAGE_MAP[chord1]["fingered"]
+            end_image = CHORD_IMAGE_MAP[chord2]["fingered"]
+        
+        generation = await luma_client.generations.create(
+            prompt=prompt,
+            keyframes={
+                "frame0": {
+                    "type": "image",
+                    "url": start_image
+                },
+                "frame1": {
+                    "type": "image",
+                    "url": end_image
+                }
+            }
+        )
+        
+        final_generation = await loop_and_wait_for_generation(generation.id)
+        video_url = final_generation.assets.video if final_generation.assets else None
+
+        if not video_url:
+            raise HTTPException(status_code=500, detail=f"Video generation failed for {chord1} to {chord2} transition")
+        
+        return video_url
+
+    # Generate videos for each chord transition, including the first chord's empty to fingered
+    video_tasks = [generate_transition_video(chords[0], chords[0], is_first=True)]  # First chord empty to fingered
+    video_tasks += [generate_transition_video(chords[i], chords[i+1]) for i in range(len(chords) - 1)]  # Transitions between chords
+    
+    try:
+        video_urls = await asyncio.gather(*video_tasks)
+        
+        # Download and merge videos
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video_paths = []
+            for i, url in enumerate(video_urls):
+                video_path = os.path.join(temp_dir, f"video_{i}.mp4")
+                await download_video(url, video_path)
+                video_paths.append(video_path)
+            
+            output_path = os.path.join(temp_dir, "merged_video.mp4")
+            merge_videos(video_paths, output_path)
+            
+            # Upload to S3
+            s3_file_name = f"chord_progression_{'_'.join(chords)}.mp4"
+            s3_url = upload_to_s3(output_path, s3_file_name)
+            
+            if not s3_url:
+                raise HTTPException(status_code=500, detail="Failed to upload video to S3")
+            
+            return {"video_url": s3_url}
+    except Exception as e:
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
