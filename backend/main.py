@@ -87,11 +87,11 @@ def extract_chords(tablature):
     )
 
     chords = response.choices[0].message.content.strip() # type: ignore[union-attr]
-    return chords.split(',')
-
+    return [chord.strip() for chord in chords.split(',')]
 async def loop_and_wait_for_generation(gen_id):
     generation = await luma_client.generations.get(id=gen_id)
     while generation.assets is None:
+        print("Waiting for generation to complete: ", generation.id)
         await asyncio.sleep(1)
         generation = await luma_client.generations.get(id=gen_id)
     return generation
@@ -103,7 +103,7 @@ async def root():
 @app.post("/api/extract-chords")
 async def extract_chords_api(tab_input: TabInput):
     """
-    Extract chords from a given guitar tablature.
+    Extract chords from a given guitar tablature and return unique chords in order.
 
     Example curl call:
     curl -X POST "http://localhost:8000/api/extract-chords" \
@@ -112,7 +112,11 @@ async def extract_chords_api(tab_input: TabInput):
     """
     try:
         chords = extract_chords(tab_input.tab)
-        return {"chords": chords}
+        unique_chords = []
+        for chord in chords:
+            if chord not in unique_chords:
+                unique_chords.append(chord)
+        return {"chords": unique_chords}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
