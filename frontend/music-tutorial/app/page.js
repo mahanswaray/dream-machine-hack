@@ -18,52 +18,69 @@ const ExtractedChords = ({ chords }) => (
   </div>
 );
 
-const VideoPlayer = ({ videoUrl }) => (
+const VideoPlayer = ({ videoUrl, isLoading, chordName }) => (
   <div className="mt-4">
-    <h3 className="text-xl font-semibold mb-2 text-blue-700">Generated Video:</h3>
-    <div className="relative pt-56.25%">
-      <video src={videoUrl} controls className="absolute top-0 left-0 w-full h-full rounded-lg shadow-lg" />
-    </div>
+    <h3 className="text-xl font-semibold mb-2 text-green-700">Video for {chordName}:</h3>
+      {isLoading ? (
+        <div className="w-full h-full flex items-center justify-center bg-gray-200 rounded-lg">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500"></div>
+        </div>
+      ) : videoUrl ? (
+        <video src={videoUrl} controls className="w-full h-full rounded-lg shadow-lg" />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center bg-gray-200 rounded-lg">
+          <p className="text-gray-500">Video not available</p>
+        </div>
+      )}
   </div>
 );
 
 export default function Home() {
   const [tab, setTab] = useState('');
   const [chords, setChords] = useState([]);
-  const [chordName, setChordName] = useState('');
-  const [videoUrl, setVideoUrl] = useState('');
+  const [videos, setVideos] = useState({});
+  const [isLoading, setIsLoading] = useState(false);
 
-  const extractChords = async () => {
+  const extractChordsAndGenerateVideos = async () => {
+    setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/extract-chords', {
+      // Extract chords
+      const chordsResponse = await fetch('http://localhost:8000/api/extract-chords', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tab }),
       });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (!chordsResponse.ok) {
+        throw new Error(`HTTP error! status: ${chordsResponse.status}`);
       }
-      const data = await response.json();
-      setChords(data.chords);
-    } catch (error) {
-      console.error('Error extracting chords:', error);
-    }
-  };
+      const chordsData = await chordsResponse.json();
+      setChords(chordsData.chords);
 
-  const generateVideo = async () => {
-    try {
-      const response = await fetch('http://localhost:8000/api/generate-video', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chord_name: chordName }),
+      // Generate videos for all chords in parallel
+      const videoPromises = chordsData.chords.map(async (chord) => {
+        const videoResponse = await fetch('http://localhost:8000/api/generate-video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chord_name: chord }),
+        });
+        if (!videoResponse.ok) {
+          throw new Error(`HTTP error! status: ${videoResponse.status}`);
+        }
+        const videoData = await videoResponse.json();
+        return { chord, videoUrl: videoData.video_url };
       });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      setVideoUrl(data.video_url);
+
+      const videoResults = await Promise.all(videoPromises);
+      const newVideos = {};
+      videoResults.forEach(({ chord, videoUrl }) => {
+        newVideos[chord] = videoUrl;
+      });
+      setVideos(newVideos);
     } catch (error) {
-      console.error('Error generating video:', error);
+      console.error('Error extracting chords or generating videos:', error);
+      // You might want to set an error state here and display it to the user
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -98,58 +115,41 @@ export default function Home() {
           <div className="p-8">
             <h2 className="text-3xl font-bold text-blue-800 mb-6">Guitar Tab Video Generator</h2>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Extract Chords Section */}
-              <section className="space-y-4">
-                <h3 className="text-2xl font-semibold text-blue-600">Extract Chords</h3>
-                <div className="relative">
-                  <textarea
-                    className="w-full p-3 border-2 border-blue-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
-                    value={tab}
-                    onChange={(e) => setTab(e.target.value)}
-                    placeholder="Enter guitar tablature here"
-                    rows="4"
-                  />
-                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                    <svg className="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
-                    </svg>
-                  </div>
-                </div>
-                <button
-                  className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-300"
-                  onClick={extractChords}
-                >
-                  Extract Chords
-                </button>
-                {chords.length > 0 && <ExtractedChords chords={chords} />}
-              </section>
-
-              {/* Generate Video Section */}
-              <section className="space-y-4">
-                <h3 className="text-2xl font-semibold text-blue-600">Generate Video</h3>
-                <div className="relative">
-                  <input
-                    className="w-full p-3 border-2 border-blue-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
-                    value={chordName}
-                    onChange={(e) => setChordName(e.target.value)}
-                    placeholder="Enter chord name"
-                  />
-                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                    <svg className="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                </div>
-                <button
-                  className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-300"
-                  onClick={generateVideo}
-                >
-                  Generate Video
-                </button>
-                {videoUrl && <VideoPlayer videoUrl={videoUrl} />}
-              </section>
+            <div className="space-y-4">
+              <h3 className="text-2xl font-semibold text-purple-600">Extract Chords and Generate Videos</h3>
+              <div className="relative">
+                <textarea
+                  className="w-full p-3 border-2 border-purple-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  value={tab}
+                  onChange={(e) => setTab(e.target.value)}
+                  placeholder="Enter guitar tablature here"
+                  rows="4"
+                />
+              </div>
+              <button
+                className="w-full px-6 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition duration-300"
+                onClick={extractChordsAndGenerateVideos}
+                disabled={isLoading}
+              >
+                {isLoading ? 'Processing...' : 'Extract Chords and Generate Videos'}
+              </button>
             </div>
+
+            {chords.length > 0 && (
+              <div className="mt-8">
+                <ExtractedChords chords={chords} />
+                <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {chords.map((chord) => (
+                    <VideoPlayer
+                      key={chord}
+                      videoUrl={videos[chord]}
+                      isLoading={isLoading}
+                      chordName={chord}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
